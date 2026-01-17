@@ -1,8 +1,5 @@
 package org.firstinspires.ftc.teamcode;
 
-//add camera to usb 3.0
-//get good mount for camera, test the one we 3dprinted if doesnt work ask shaurya to make and give him camera and tell him where to mount by asking anutham
-//scan on driver hub to get the camera and name it Webcam 1, activate when done
 
 import android.util.Size;
 
@@ -17,7 +14,7 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 
 import java.util.ArrayList;
 import java.util.List;
-public class AprilTagWebcam {
+public class AprilTagWebcamSetup {
 
     private AprilTagProcessor aprilTagProcessor;
     private VisionPortal visionPortal;
