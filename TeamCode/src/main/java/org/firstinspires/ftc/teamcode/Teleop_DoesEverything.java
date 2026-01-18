@@ -1,6 +1,7 @@
 package org.firstinspires.ftc.teamcode;
 
 import com.qualcomm.hardware.bosch.BHI260IMU;
+import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
 import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
@@ -10,7 +11,6 @@ import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.IMU;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.Range;
-//import java.lang.Math;
 
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.AxesOrder;
@@ -18,8 +18,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.AxesReference;
 import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
 
 /* Copyright (c) 2021 FIRST. All rights reserved.
-
-
+ *
  * Redistribution and use in source and binary forms, with or without modification,
  * are permitted (subject to the limitations in the disclaimer below) provided that
  * the following conditions are met:
@@ -47,53 +46,20 @@ import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-
-
 import com.qualcomm.robotcore.eventloop.opmode.Disabled;
-import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
-import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
-import com.qualcomm.robotcore.hardware.CRServo;
-import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
-import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.hardware.ServoControllerEx;
 import com.qualcomm.robotcore.hardware.configuration.annotations.ServoTypes;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
-/*
- * This file contains an example of a Linear "OpMode".
- * An OpMode is a 'program' that runs in either the autonomous or the teleop period of an FTC match.
- * The names of OpModes appear on the menu of the FTC Driver Station.
- * When a selection is made from the menu, the corresponding OpMode is executed.
- *
- * This particular OpMode illustrates driving a 4-motor Omni-Directional (or Holonomic) robot.
- * This code will work with either a Mecanum-Drive or an X-Drive train.
- * Both of these drives are illustrated at https://gm0.org/en/latest/docs/robot-design/drivetrains/holonomic.html
- * Note that a Mecanum drive must display an X roller-pattern when viewed from above.
- *
- * Also note that it is critical to set the correct rotation direction for each motor.  See details below.
- *
- * Holonomic drives provide the ability for the robot to move in three axes (directions) simultaneously.
- * Each motion axis is controlled by one Joystick axis.
- *
- * 1) Axial:    Driving forward and backward               Left-joystick Forward/Backward
- * 2) Lateral:  Strafing right and left                     Left-joystick Right and Left
- * 3) Yaw:      Rotating Clockwise and counter clockwise    Right-joystick Right and Left
- *
- * This code is written assuming that the right-side motors need to be reversed for the robot to drive forward.
- * When you first test your robot, if it moves backward when you push the left stick forward, then you must flip
- * the direction of all 4 motors (see code below).
- *
- * Use Android Studio to Copy this Class, and Paste it into your team's code folder with a new name.
- * Remove or comment out the @Disabled line to add this OpMode to the Driver Station OpMode list
- */
+import java.util.prefs.BackingStoreException;
 
 @TeleOp(name="Teleop_DoesEverything", group="Linear OpMode")
-
 public class Teleop_DoesEverything extends LinearOpMode {
 
-    // Declare OpMode members for each of the 4 motors.
-    BHI260IMU imu;
+    // Replaced IMU with Pinpoint as the angle source
+    private GoBildaPinpointDriver pinpoint;
+
     private ElapsedTime runtime = new ElapsedTime();
     private DcMotor frontLeftDrive = null;
     private DcMotor backLeftDrive = null;
@@ -108,13 +74,12 @@ public class Teleop_DoesEverything extends LinearOpMode {
     //Left guiding servo on bottom
     private Servo s3 = null;
     //linear servo for ramp
-    private  CRServo s4 = null;
+    private CRServo s4 = null;
     //right guiding servo on bottom
     private CRServo s5 = null;
     //left guiding servo on top (1)
     private CRServo s6 = null;
     //right guiding servo on top (-1)
-
 
     double left1Y, right1Y, left1X, right1X;
     double left2Y, right2Y, left2X, right2X;
@@ -133,20 +98,12 @@ public class Teleop_DoesEverything extends LinearOpMode {
     @Override
     public void runOpMode() {
 
+        // Initialize Pinpoint (configured on I2C Bus 0 as "pinpoint")
+        pinpoint = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
+        pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
+        pinpoint.resetPosAndIMU();
 
-        BHI260IMU.Parameters myIMUParameters;
-        Orientation myRobotOrientation;
-
-        // IMU in the control hub
-        imu = hardwareMap.get(BHI260IMU.class, "imu");
-
-        // Start imu initialization
-        myIMUParameters = new IMU.Parameters(
-                new RevHubOrientationOnRobot(RevHubOrientationOnRobot.LogoFacingDirection.RIGHT, RevHubOrientationOnRobot.UsbFacingDirection.UP)
-        );
-        imu.initialize(myIMUParameters);
-        imu.resetYaw();
-        telemetry.addData("Gyro Status", "Initialized");
+        telemetry.addData("Gyro Status", "Pinpoint Initialized");
         telemetry.update();
 
         // Initialize the hardware variables. Note that the strings used here must correspond
@@ -165,10 +122,10 @@ public class Teleop_DoesEverything extends LinearOpMode {
         s5 = hardwareMap.get(CRServo.class,"s5");
         s6 = hardwareMap.get(CRServo.class,"s6");
 
-        frontLeftDrive.setDirection(DcMotor.Direction.FORWARD);
-        backLeftDrive.setDirection(DcMotor.Direction.FORWARD);
-        frontRightDrive.setDirection(DcMotor.Direction.REVERSE);
-        backRightDrive.setDirection(DcMotor.Direction.REVERSE);
+        frontLeftDrive.setDirection(DcMotor.Direction.REVERSE);
+        backLeftDrive.setDirection(DcMotor.Direction.REVERSE);
+        frontRightDrive.setDirection(DcMotor.Direction.FORWARD);
+        backRightDrive.setDirection(DcMotor.Direction.FORWARD);
 
         backRightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         frontLeftDrive.setMode((DcMotor.RunMode.STOP_AND_RESET_ENCODER));
@@ -184,7 +141,6 @@ public class Teleop_DoesEverything extends LinearOpMode {
         frontLeftDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         frontRightDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         backRightDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-
 
         // Wait for the game to start (driver presses START)
         telemetry.addData("Status", "Initialized");
@@ -213,14 +169,11 @@ public class Teleop_DoesEverything extends LinearOpMode {
 
             if(gamepad2.right_bumper){
                 s1.setDirection(Servo.Direction.FORWARD);
-
                 s1.setPosition(0.5);
-
             }
             if(gamepad2.left_bumper){
                 s1.setDirection(Servo.Direction.REVERSE);
                 s1.setPosition(-0.5);
-
             }
 
             if (gamepad2.x){
@@ -231,49 +184,47 @@ public class Teleop_DoesEverything extends LinearOpMode {
             }else {intake.setPower(0);}
 
             if (gamepad2.a){
-//
                 shootRight.setPower(0.8);
                 shootLeft.setPower(-0.8);
-
-            }else{shootRight.setPower(0);
-                shootLeft.setPower(0);}
+            }else{
+                shootRight.setPower(0);
+                shootLeft.setPower(0);
+            }
 
             if (gamepad2.b){
                 shootRight.setPower(-1);
                 shootLeft.setPower(1);
-            }else{shootRight.setPower(0);
-                shootLeft.setPower(0);}
+            }else{
+                shootRight.setPower(0);
+                shootLeft.setPower(0);
+            }
 
             if(gamepad2.dpad_up){
-                s2.setPower(-1);
-                s5.setPower(1);
-                s6.setPower(-1);
+                frontLeftDrive.setPower(0.3);
+                frontRightDrive.setPower(-0.3);
+                backRightDrive.setPower(-0.3);
+                backLeftDrive.setPower(0.3);
             }
 
             if(gamepad2.dpad_down){
-                s2.setPower(0);
-                s5.setPower(0);
-                s6.setPower(0);
+                frontLeftDrive.setPower(0.3);
+                frontRightDrive.setPower(0.3);
+                backRightDrive.setPower(0.3);
+                backLeftDrive.setPower(0.3);
             }
-
 
             if(gamepad2.right_trigger > 0.1) {
-
-
                 s3.setPosition(0.5);
             }
-
-
-
 
             if(gamepad2.left_trigger > 0.1){
                 s3.setPosition(0.7);
             }
 
-
             //movement
             boolean leftStickActive = (left2X != 0) || (left2Y != 0);
             boolean rightStickActive = right2X != 0;
+
             //Forwards/Backward for gamepad 1
             if (leftStickActive == rightStickActive) {
                 flPower = 0;
@@ -281,17 +232,20 @@ public class Teleop_DoesEverything extends LinearOpMode {
                 brPower = 0;
                 blPower = 0;
 
-
             } else if (leftStickActive) {
 
                 double THRESH_WM_POWER = 0.8; // max abs wheel power
-                myRobotOrientation = imu.getRobotOrientation(AxesReference.INTRINSIC, AxesOrder.XYZ, AngleUnit.DEGREES);
-                double correction = myRobotOrientation.thirdAngle / 180.0;
+
+                // Replaced IMU orientation read with Pinpoint yaw
+                double headingDeg = pinpoint.getYawScalar(); // degrees
+                double correction = headingDeg / 180.0;
+
                 correction = (10.0 * correction * Math.abs(left2Y) / THRESH_WM_POWER);
                 if (flag_correction == false) {
                     correction = 0;
                 }
                 correction = 0;
+
                 double maxPow = THRESH_WM_POWER;
                 double flPow = left2Y + (-left2X) + correction;
                 maxPow = Math.max(maxPow, Math.abs(flPow));
@@ -311,9 +265,7 @@ public class Teleop_DoesEverything extends LinearOpMode {
                 frPower = (Range.clip(frPow, -THRESH_WM_POWER, THRESH_WM_POWER));
                 brPower = (Range.clip(brPow, -THRESH_WM_POWER, THRESH_WM_POWER));
 
-                telemetry.addData("first Angle", myRobotOrientation.firstAngle);
-                telemetry.addData("second Angle", myRobotOrientation.secondAngle);
-                telemetry.addData("third Angle", myRobotOrientation.thirdAngle);
+                telemetry.addData("third Angle", headingDeg);
                 telemetry.addData("correction", correction);
                 telemetry.addData("leftY", left1Y);
                 telemetry.addData("leftX", left1X);
@@ -327,6 +279,7 @@ public class Teleop_DoesEverything extends LinearOpMode {
                 telemetry.addData("br Enc Count", backRightDrive.getCurrentPosition());
                 telemetry.update();
                 telemetry.update();
+
             } else {
                 //rightstick active
                 double THRESH_WM_POWER_FORTURN = 0.8;
@@ -334,18 +287,20 @@ public class Teleop_DoesEverything extends LinearOpMode {
                 blPower = (Range.clip((-right2X), -THRESH_WM_POWER_FORTURN, THRESH_WM_POWER_FORTURN));
                 frPower = (Range.clip((-right2X), -THRESH_WM_POWER_FORTURN, THRESH_WM_POWER_FORTURN));
                 brPower = (Range.clip(-(-right2X), -THRESH_WM_POWER_FORTURN, THRESH_WM_POWER_FORTURN));
-                myRobotOrientation = imu.getRobotOrientation(AxesReference.INTRINSIC, AxesOrder.XYZ, AngleUnit.DEGREES);
-                telemetry.addData("THIS IS THE ANGLE", myRobotOrientation.thirdAngle);
+
+                // Replaced IMU orientation read with Pinpoint yaw
+                double headingDeg = pinpoint.getYawScalar();
+                telemetry.addData("THIS IS THE ANGLE", headingDeg);
                 telemetry.update();
                 //imu.resetYaw();
                 idle();
             }
-
 
             backLeftDrive.setPower(blPower);
             backRightDrive.setPower(brPower);
             frontLeftDrive.setPower(flPower);
             frontRightDrive.setPower(frPower);
 
-
-        }}}
+        }
+    }
+}
