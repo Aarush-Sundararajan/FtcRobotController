@@ -1,58 +1,16 @@
 package org.firstinspires.ftc.teamcode.pedroPathing;
 
-import com.qualcomm.hardware.bosch.BHI260IMU;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
-import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.DcMotor;
-import com.qualcomm.robotcore.hardware.DcMotorEx;
-import com.qualcomm.robotcore.hardware.IMU;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.Range;
-
-import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
-import org.firstinspires.ftc.robotcore.external.navigation.AxesOrder;
-import org.firstinspires.ftc.robotcore.external.navigation.AxesReference;
-import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
-
-/* Copyright (c) 2021 FIRST. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without modification,
- * are permitted (subject to the limitations in the disclaimer below) provided that
- * the following conditions are met:
- *
- * Redistributions of source code must retain the above copyright notice, this list
- * of conditions and the following disclaimer.
- *
- * Redistributions in binary form must reproduce the above copyright notice, this
- * list of conditions and the following disclaimer in the documentation and/or
- * other materials provided with the distribution.
- *
- * Neither the name of FIRST nor the names of its contributors may be used to endorse or
- * promote products derived from this software without specific prior written permission.
- *
- * NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE GRANTED BY THIS
- * LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-import com.qualcomm.robotcore.eventloop.opmode.Disabled;
-import com.qualcomm.robotcore.hardware.DcMotorSimple;
-import com.qualcomm.robotcore.hardware.ServoControllerEx;
-import com.qualcomm.robotcore.hardware.configuration.annotations.ServoTypes;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
-import java.util.prefs.BackingStoreException;
+import java.util.ArrayList;
+import java.util.List;
 
 @TeleOp(name="Teleop_DoesEverything", group="Linear OpMode")
 public class Teleop_DoesEverything extends LinearOpMode {
@@ -61,6 +19,13 @@ public class Teleop_DoesEverything extends LinearOpMode {
     private GoBildaPinpointDriver pinpoint;
 
     private ElapsedTime runtime = new ElapsedTime();
+
+    // NEW: event timing + persistent log
+    private final ElapsedTime eventTimer = new ElapsedTime();
+    private double lastEventMs = 0.0;
+    private final List<String> eventLog = new ArrayList<>();
+    private static final int MAX_LOG_LINES = 20; // keep screen readable
+
     private DcMotor frontLeftDrive = null;
     private DcMotor backLeftDrive = null;
     private DcMotor frontRightDrive = null;
@@ -68,37 +33,63 @@ public class Teleop_DoesEverything extends LinearOpMode {
     private DcMotor shootLeft = null;
     private DcMotor shootRight = null;
     private DcMotor intake = null;
+    private DcMotor guider = null;
     private Servo s1 = null;
-    //Sorter
     private CRServo s2 = null;
-    //Left guiding servo on bottom
     private Servo s3 = null;
-    //linear servo for ramp
     private CRServo s4 = null;
-    //right guiding servo on bottom
     private CRServo s5 = null;
-    //left guiding servo on top (1)
     private CRServo s6 = null;
-    //right guiding servo on top (-1)
 
     double left1Y, right1Y, left1X, right1X;
     double left2Y, right2Y, left2X, right2X;
     boolean flag_correction = true;
-    double m2Power, blPower, flPower, brPower, frPower;
+    double blPower, flPower, brPower, frPower;
     static final double DEADZONE = 0.1;
 
+    // Intake toggle state
+    boolean intakeprevious = false;
+    boolean intakeConstant = false;
+
+    // Shooter states
+    boolean ShootPrevious = false;
+    boolean ShootConstant = false;      // B toggle reverse
+    boolean aPrev = false;              // for A press/release detection
+
+    // Guider state: -1 reverse, 0 off, +1 forward
+    int guiderState = 0;       // current
+    int guiderPrevState = 0;   // previous
+
     private double clampDeadzone(double val) {
-        if (Math.abs(val) < DEADZONE) {
-            return 0;
-        } else {
-            return val;
+        return (Math.abs(val) < DEADZONE) ? 0 : val;
+    }
+
+    // NEW: Add a log line with Δt since last event (global)
+    private void logEvent(String msg) {
+        double now = eventTimer.milliseconds();
+        long delta = Math.round(now - lastEventMs);
+        lastEventMs = now;
+
+        // store "(delta ms)" exactly like you asked
+        eventLog.add(msg + " (" + delta + " ms)");
+
+        // prevent infinite growth (keep most recent MAX_LOG_LINES)
+        while (eventLog.size() > MAX_LOG_LINES) {
+            eventLog.remove(0);
+        }
+    }
+
+    // NEW: Render the persistent log every loop without clearing it
+    private void showLog() {
+        telemetry.addLine("=== Event Log (Δt since last event) ===");
+        for (String line : eventLog) {
+            telemetry.addLine(line);
         }
     }
 
     @Override
     public void runOpMode() {
 
-        // Initialize Pinpoint (configured on I2C Bus 0 as "pinpoint")
         pinpoint = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
         pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
         pinpoint.resetPosAndIMU();
@@ -106,8 +97,6 @@ public class Teleop_DoesEverything extends LinearOpMode {
         telemetry.addData("Gyro Status", "Pinpoint Initialized");
         telemetry.update();
 
-        // Initialize the hardware variables. Note that the strings used here must correspond
-        // to the names assigned during the robot configuration step on the DS or RC devices.
         frontLeftDrive = hardwareMap.get(DcMotor.class, "lf");
         backLeftDrive = hardwareMap.get(DcMotor.class, "lb");
         frontRightDrive = hardwareMap.get(DcMotor.class, "rf");
@@ -115,6 +104,7 @@ public class Teleop_DoesEverything extends LinearOpMode {
         intake = hardwareMap.get(DcMotor.class,"intake");
         shootLeft = hardwareMap.get(DcMotor.class,"sLeft");
         shootRight = hardwareMap.get(DcMotor.class,"sRight");
+        guider = hardwareMap.get(DcMotor.class,"guide");
         s1 = hardwareMap.get(Servo.class, "s1");
         s2 = hardwareMap.get(CRServo.class, "s2");
         s3 = hardwareMap.get(Servo.class, "s3");
@@ -128,9 +118,9 @@ public class Teleop_DoesEverything extends LinearOpMode {
         backRightDrive.setDirection(DcMotor.Direction.FORWARD);
 
         backRightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        frontLeftDrive.setMode((DcMotor.RunMode.STOP_AND_RESET_ENCODER));
+        frontLeftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         frontRightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        backRightDrive.setMode((DcMotor.RunMode.STOP_AND_RESET_ENCODER));
+        backRightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
 
         backLeftDrive.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         frontLeftDrive.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
@@ -142,95 +132,165 @@ public class Teleop_DoesEverything extends LinearOpMode {
         frontRightDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         backRightDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
-        // Wait for the game to start (driver presses START)
         telemetry.addData("Status", "Initialized");
         telemetry.update();
-        boolean gay = false;
 
         waitForStart();
+
         runtime.reset();
+        eventTimer.reset();
+        lastEventMs = 0.0;
+        eventLog.clear();
+        logEvent("OpMode started"); // first line, delta will be ~0ms
 
-        // run until the end of the match (driver presses STOP)
         while (opModeIsActive()) {
-            left1Y = this.clampDeadzone(gamepad1.left_stick_y * -1);
-            left1X = this.clampDeadzone(gamepad1.left_stick_x);
-            right1Y = this.clampDeadzone(gamepad1.right_stick_y * -1);
-            right1X = this.clampDeadzone(gamepad1.right_stick_x);
 
-            left2Y = this.clampDeadzone(gamepad2.left_stick_y * -1);
-            left2X = this.clampDeadzone(gamepad2.left_stick_x);
-            right2Y = this.clampDeadzone(gamepad2.right_stick_y * -1);
-            right2X = this.clampDeadzone(gamepad2.right_stick_x);
+            left1Y = clampDeadzone(gamepad1.left_stick_y * -1);
+            left1X = clampDeadzone(gamepad1.left_stick_x);
+            right1Y = clampDeadzone(gamepad1.right_stick_y * -1);
+            right1X = clampDeadzone(gamepad1.right_stick_x);
 
-            shootLeft.setPower(0);
-            shootRight.setPower(0);
-            intake.setPower(0);
+            left2Y = clampDeadzone(gamepad2.left_stick_y * -1);
+            left2X = clampDeadzone(gamepad2.left_stick_x);
+            right2Y = clampDeadzone(gamepad2.right_stick_y * -1);
+            right2X = clampDeadzone(gamepad2.right_stick_x);
+
+            // keep sorter zero like you had
             s2.setPower(0);
 
-            if(gamepad2.right_bumper){
+            // s1 bumpers (no logging requested here)
+            if (gamepad2.right_bumper) {
                 s1.setDirection(Servo.Direction.FORWARD);
                 s1.setPosition(0.5);
             }
-            if(gamepad2.left_bumper){
+            if (gamepad2.left_bumper) {
                 s1.setDirection(Servo.Direction.REVERSE);
                 s1.setPosition(-0.5);
             }
 
-            if (gamepad2.x){
-                intake.setPower(0);
+            // =========================
+            // INTAKE TOGGLE (X)
+            // =========================
+            if (gamepad2.x && !intakeprevious) { // rising edge
+                intakeConstant = !intakeConstant;
+                if (intakeConstant) {
+                    intake.setPower(1);
+                    logEvent("Intake Activated (Toggled)");
+                } else {
+                    intake.setPower(0);
+                    logEvent("Intake Deactivated");
+                }
             }
-            if (gamepad2.y){
-                intake.setPower(1);
-            }
+            intakeprevious = gamepad2.x;
 
-            if (gamepad2.a){
+            // If you ONLY want toggle control for intake, do NOT override power elsewhere.
+            // (This preserves your current behavior: intake power only changes on toggles.)
+
+            // =========================
+            // SHOOTER
+            // B = toggle reverse
+            // A = hold forward override (cancels toggle)
+            // =========================
+
+            // Rising edge for B toggle (ONLY if A is not currently held)
+            if (gamepad2.b && !ShootPrevious && !gamepad2.a) {
+                ShootConstant = !ShootConstant;
+                if (ShootConstant) {
+                    logEvent("Shooter Activated (Toggle Reverse)");
+                } else {
+                    logEvent("Shooter Deactivated (Toggle Off)");
+                }
+            }
+            ShootPrevious = gamepad2.b;
+
+            // Detect A press/release for logging
+            boolean aNow = gamepad2.a;
+            if (aNow && !aPrev) {
+                // A pressed
+                if (ShootConstant) {
+                    ShootConstant = false; // cancel toggle
+                    logEvent("Shooter Toggle Canceled by A");
+                }
+                logEvent("Shooter Forward Override (A) ON");
+            } else if (!aNow && aPrev) {
+                // A released
+                logEvent("Shooter Forward Override (A) OFF");
+            }
+            aPrev = aNow;
+
+            // Apply shooter motor powers (no spam logs here)
+            if (gamepad2.a) {
+                // forward override
                 shootRight.setPower(1);
                 shootLeft.setPower(-1);
-            }else{
+            } else if (ShootConstant) {
+                // reverse toggle (your chosen power)
+                shootRight.setPower(-0.8);
+                shootLeft.setPower(0.8);
+            } else {
                 shootRight.setPower(0);
                 shootLeft.setPower(0);
             }
 
-            if (gamepad2.b){
-                shootRight.setPower(-1);
-                shootLeft.setPower(1);
-            }else{
-                shootRight.setPower(0);
-                shootLeft.setPower(0);
+            // =========================
+            // GUIDER
+            // Only log on transitions (OFF<->ON / direction changes)
+            // =========================
+            int desiredGuiderState;
+            boolean right = gamepad2.dpad_right;
+            boolean left = gamepad2.dpad_left;
+
+            if (right && !left) desiredGuiderState = 1;
+            else if (left && !right) desiredGuiderState = -1;
+            else desiredGuiderState = 0; // both or neither -> off
+
+            if (desiredGuiderState != guiderState) {
+                guiderState = desiredGuiderState;
+
+                if (guiderState == 1) {
+                    logEvent("Guider ON (Forward)");
+                } else if (guiderState == -1) {
+                    logEvent("Guider ON (Reverse)");
+                } else {
+                    logEvent("Guider OFF");
+                }
             }
 
-            if(gamepad2.dpad_up){
+            // Apply guider power (no spam logs)
+            if (guiderState == 1) guider.setPower(1);
+            else if (guiderState == -1) guider.setPower(-1);
+            else guider.setPower(0);
+
+            // =========================
+            // other controls you already had
+            // =========================
+            if (gamepad2.dpad_up) {
                 frontLeftDrive.setPower(0.3);
                 frontRightDrive.setPower(-0.3);
                 backRightDrive.setPower(-0.3);
                 backLeftDrive.setPower(0.3);
             }
 
-            if(gamepad2.dpad_down){
-               /* frontLeftDrive.setPower(0.3);
-                frontRightDrive.setPower(0.3);
-                backRightDrive.setPower(0.3);
-                backLeftDrive.setPower(0.3);
-                */
+            if (gamepad2.dpad_down) {
                 flPower = 0.3;
-                blPower= 0.3;
+                blPower = 0.3;
                 frPower = 0.3;
                 brPower = 0.3;
             }
 
-            if(gamepad2.right_trigger > 0.1) {
+            if (gamepad2.right_trigger > 0.1) {
                 s3.setPosition(0.5);
             }
-
-            if(gamepad2.left_trigger > 0.1){
+            if (gamepad2.left_trigger > 0.1) {
                 s3.setPosition(0.7);
             }
 
-            //movement
+            // =========================
+            // MOVEMENT (unchanged)
+            // =========================
             boolean leftStickActive = (left2X != 0) || (left2Y != 0);
             boolean rightStickActive = right2X != 0;
 
-            //Forwards/Backward for gamepad 1
             if (leftStickActive == rightStickActive) {
                 flPower = 0;
                 frPower = 0;
@@ -239,16 +299,12 @@ public class Teleop_DoesEverything extends LinearOpMode {
 
             } else if (leftStickActive) {
 
-                double THRESH_WM_POWER = 0.8; // max abs wheel power
-
-                // Replaced IMU orientation read with Pinpoint yaw
-                double headingDeg = pinpoint.getYawScalar(); // degrees
+                double THRESH_WM_POWER = 0.8;
+                double headingDeg = pinpoint.getYawScalar();
                 double correction = headingDeg / 180.0;
 
                 correction = (10.0 * correction * Math.abs(left2Y) / THRESH_WM_POWER);
-                if (flag_correction == false) {
-                    correction = 0;
-                }
+                if (flag_correction == false) correction = 0;
                 correction = 0;
 
                 double maxPow = THRESH_WM_POWER;
@@ -260,44 +316,23 @@ public class Teleop_DoesEverything extends LinearOpMode {
                 maxPow = Math.max(maxPow, Math.abs(frPow));
                 double brPow = left2Y + (left2X) - correction;
                 maxPow = Math.max(maxPow, Math.abs(brPow));
+
                 flPow = (flPow / maxPow) * THRESH_WM_POWER;
                 blPow = (blPow / maxPow) * THRESH_WM_POWER;
                 frPow = (frPow / maxPow) * THRESH_WM_POWER;
                 brPow = (brPow / maxPow) * THRESH_WM_POWER;
 
-                flPower = (Range.clip(flPow, -THRESH_WM_POWER, THRESH_WM_POWER));
-                blPower = (Range.clip(blPow, -THRESH_WM_POWER, THRESH_WM_POWER));
-                frPower = (Range.clip(frPow, -THRESH_WM_POWER, THRESH_WM_POWER));
-                brPower = (Range.clip(brPow, -THRESH_WM_POWER, THRESH_WM_POWER));
-
-                telemetry.addData("third Angle", headingDeg);
-                telemetry.addData("correction", correction);
-                telemetry.addData("leftY", left1Y);
-                telemetry.addData("leftX", left1X);
-                telemetry.addData("flPow", flPow);
-                telemetry.addData("blPow", blPow);
-                telemetry.addData("frPow", frPow);
-                telemetry.addData("brPow", brPow);
-                telemetry.addData("fl Enc Count", frontLeftDrive.getCurrentPosition());
-                telemetry.addData("bl Enc Count", backLeftDrive.getCurrentPosition());
-                telemetry.addData("fr Enc Count", frontRightDrive.getCurrentPosition());
-                telemetry.addData("br Enc Count", backRightDrive.getCurrentPosition());
-                telemetry.update();
-                telemetry.update();
+                flPower = Range.clip(flPow, -THRESH_WM_POWER, THRESH_WM_POWER);
+                blPower = Range.clip(blPow, -THRESH_WM_POWER, THRESH_WM_POWER);
+                frPower = Range.clip(frPow, -THRESH_WM_POWER, THRESH_WM_POWER);
+                brPower = Range.clip(brPow, -THRESH_WM_POWER, THRESH_WM_POWER);
 
             } else {
-                //rightstick active
                 double THRESH_WM_POWER_FORTURN = 0.8;
-                flPower = (Range.clip((right2X), -THRESH_WM_POWER_FORTURN, THRESH_WM_POWER_FORTURN));
-                blPower = (Range.clip((right2X), -THRESH_WM_POWER_FORTURN, THRESH_WM_POWER_FORTURN));
-                frPower = (Range.clip((-right2X), -THRESH_WM_POWER_FORTURN, THRESH_WM_POWER_FORTURN));
-                brPower = (Range.clip((-right2X), -THRESH_WM_POWER_FORTURN, THRESH_WM_POWER_FORTURN));
-
-                // Replaced IMU orientation read with Pinpoint yaw
-                double headingDeg = pinpoint.getYawScalar();
-                telemetry.addData("THIS IS THE ANGLE", headingDeg);
-                telemetry.update();
-                //imu.resetYaw();
+                flPower = Range.clip((right2X), -THRESH_WM_POWER_FORTURN, THRESH_WM_POWER_FORTURN);
+                blPower = Range.clip((right2X), -THRESH_WM_POWER_FORTURN, THRESH_WM_POWER_FORTURN);
+                frPower = Range.clip((-right2X), -THRESH_WM_POWER_FORTURN, THRESH_WM_POWER_FORTURN);
+                brPower = Range.clip((-right2X), -THRESH_WM_POWER_FORTURN, THRESH_WM_POWER_FORTURN);
                 idle();
             }
 
@@ -306,6 +341,14 @@ public class Teleop_DoesEverything extends LinearOpMode {
             frontLeftDrive.setPower(flPower);
             frontRightDrive.setPower(frPower);
 
+            // =========================
+            // TELEMETRY OUTPUT
+            // =========================
+
+            // persistent event log
+            showLog();
+
+            telemetry.update();
         }
     }
 }

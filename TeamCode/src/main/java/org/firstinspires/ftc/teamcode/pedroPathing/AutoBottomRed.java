@@ -18,6 +18,13 @@ public class AutoBottomRed extends OpMode {
     private Follower follower;
     private Timer pathTimer, opModeTimer;
     private DcMotor intake = null;
+    private DcMotor guider = null;
+    private DcMotor shootLeft = null;
+    private DcMotor shootRight = null;
+
+    // --- Added for guiderReversal timing (non-blocking) ---
+    private Timer actionTimer = new Timer();
+    private boolean guiderReversalActive = false;
 
     public enum PathState {
         Path1,
@@ -110,16 +117,23 @@ public class AutoBottomRed extends OpMode {
         switch (pathState) {
 
             case Path1:
-                follower.followPath(driveP1, true);
-                setPathState(PathState.Shoot1);
-                break;
+            follower.followPath(driveP1, true);
+            setPathState(PathState.Shoot1);
+            break;
 
             case Shoot1:
-                if (!follower.isBusy() && pathTimer.getElapsedTimeSeconds() > 2) {
-                    follower.setMaxPower(0.5);
-                    follower.followPath(driveP2, true);
-                    intake.setPower(1);
-                    setPathState(PathState.Path2);
+                // First: wait until Path1 completes
+                if (!follower.isBusy()) {
+                    // When we first arrive, start shooter + intake/guider and start timer
+                    shooterOn();
+                    allOn();
+
+                    // Now wait 5 seconds BEFORE starting the next path
+                    if (pathTimer.getElapsedTimeSeconds() > 5) {
+                        follower.setMaxPower(0.5);
+                        follower.followPath(driveP2, true);
+                        setPathState(PathState.Path2);
+                    }
                 }
                 break;
 
@@ -218,6 +232,46 @@ public class AutoBottomRed extends OpMode {
         pathTimer.resetTimer();
     }
 
+    // ============================
+    // Added public helper functions
+    // ============================
+
+    public void intakeOn() {
+        intake.setPower(1);
+    }
+
+    public void intakeOff() {
+        intake.setPower(0);
+    }
+
+    public void allOn() {
+        guider.setPower(1);
+        intake.setPower(1);
+    }
+
+    public void allOff() {
+        guider.setPower(0);
+        intake.setPower(0);
+    }
+
+    // Starts the reversal action; completion is handled non-blocking in loop()
+    public void guiderReversal() {
+        guiderReversalActive = true;
+        actionTimer.resetTimer();
+        guider.setPower(-1);     // reversed guider
+        intake.setPower(0.25);   // intake reduced power while reversing
+    }
+
+    public void shooterOn() {
+        shootRight.setPower(-0.8);
+        shootLeft.setPower(0.8);
+    }
+
+    public void shooterOff() {
+        shootRight.setPower(0);
+        shootLeft.setPower(0);
+    }
+
     @Override
     public void init() {
         pathState = PathState.Path1;
@@ -225,6 +279,9 @@ public class AutoBottomRed extends OpMode {
         opModeTimer = new Timer();
         opModeTimer.resetTimer();
         intake = hardwareMap.get(DcMotor.class,"intake");
+        shootLeft = hardwareMap.get(DcMotor.class,"sLeft");
+        shootRight = hardwareMap.get(DcMotor.class,"sRight");
+        guider = hardwareMap.get(DcMotor.class,"guide");
         follower = Constants.createFollower(hardwareMap);
 
         buildPaths();
@@ -234,12 +291,20 @@ public class AutoBottomRed extends OpMode {
     public void start() {
         opModeTimer.resetTimer();
         setPathState(pathState);
+
     }
 
     @Override
     public void loop() {
         follower.update();
         statePathUpdate();
+
+        // Non-blocking completion for guiderReversal()
+        if (guiderReversalActive && actionTimer.getElapsedTimeSeconds() >= 0.753) {
+            guider.setPower(0);
+            intake.setPower(0);
+            guiderReversalActive = false;
+        }
 
         telemetry.addData("path state", pathState.toString());
         telemetry.addData("x", follower.getPose().getX());
